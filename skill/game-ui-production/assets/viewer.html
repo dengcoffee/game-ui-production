@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>游戏 UI 视觉对照</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#171b22;color:#e9edf3;font:14px system-ui,sans-serif}header{padding:18px 24px;background:#232a35;border-bottom:1px solid #465160}h1{margin:0 0 12px;font-size:22px}label{display:inline-flex;gap:7px;align-items:center;margin:5px 14px 5px 0}button,select{background:#354151;color:inherit;border:1px solid #637187;border-radius:5px;padding:7px}input[type=range]{width:110px}button{cursor:pointer}#identity{overflow-wrap:anywhere;white-space:pre-wrap;font:12px monospace;margin-top:12px;line-height:1.7}#notes{color:#ccd3df;margin:12px 24px}main{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 24px 24px}article{min-width:0}h2{font-size:14px;color:#b8c7da}.viewport{height:62vh;overflow:auto;background:#101319;border:1px solid #536174}.checker{background:repeating-conic-gradient(#333c48 0% 25%,#222b35 0% 50%) 50% / 20px 20px}canvas{display:block}#metric{color:#ffbc8b}small{color:#a9b7c7}
+</style>
+<header><h1>游戏 UI · 素材组装与视觉对照</h1>
+<label>系统 <select id="system"></select></label><label>页面 <select id="page"></select></label><label>状态 <select id="state"></select></label>
+<label>对照 <select id="mode"><option value="side">并排</option><option value="overlay">透明叠加</option><option value="diff">差异热图</option></select></label>
+<label>缩放 <input id="zoom" type="range" min="0.2" max="3" value="0.5" step="0.05"><span id="zoomValue"></span></label>
+<label>叠加 <input id="alpha" type="range" min="0" max="1" value="0.5" step="0.05"></label>
+<label>容差 <input id="threshold" type="range" min="0" max="1" value="0.1" step="0.01"></label>
+<label><input id="scope" type="checkbox" checked>范围蒙版</label><label><input id="bounds" type="checkbox">布局与主体边界</label><label><input id="checker" type="checkbox" checked>棋盘格</label>
+<button id="export">导出对照 PNG</button> <button id="metadata">导出反馈身份 JSON</button>
+<div id="identity"></div><small id="metric"></small> <small>像素差异仅辅助定位；技术检查不代表用户视觉确认。</small>
+</header><div id="notes"></div><main><article><h2>参考效果图</h2><div class="viewport checker" id="left"><canvas id="reference"></canvas></div></article><article><h2 id="rightTitle">真实独立素材组装</h2><div class="viewport checker" id="right"><canvas id="assembly"></canvas></div></article></main>
+<script>/*__PIXELMATCH__*/</script>
+<script>
+'use strict';
+const DATA=/*__DATA__*/;
+const $=id=>document.getElementById(id), [W,H]=DATA.canvas;
+const canvases=[$('reference'),$('assembly')];
+canvases.forEach(c=>{c.width=W;c.height=H});
+let current, images, sync=false, requestVersion=0;
+const cache=new Map();
+function options(element,values){element.replaceChildren(...values.map(([value,label])=>{const o=document.createElement('option');o.value=value;o.textContent=label;return o}))}
+function pageOptions(){options($('page'),DATA.views.filter(v=>v.system===$('system').value&&v.state==='normal').map(v=>[v.id,v.name]));stateOptions()}
+function stateOptions(){options($('state'),DATA.views.filter(v=>v.id===$('page').value).map(v=>[v.state,v.state]));selectView()}
+function loadImage(url){if(!cache.has(url))cache.set(url,new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=url}));return cache.get(url)}
+function feedback(){return {tool_version:DATA.tool_version,system:current.system,page:current.id,state:current.state,status:current.status,manifest_sha256:DATA.manifest_hash,reference_sha256:current.reference_hash,assembly_sha256:current.assembly_hash,mode:$('mode').value,threshold:Number($('threshold').value),opacity:Number($('alpha').value),scope:$('scope').checked,zoom:Number($('zoom').value)}}
+async function selectView(){const version=++requestVersion;current=DATA.views.find(v=>v.id===$('page').value&&v.state===$('state').value);const v=current;const loaded=await Promise.all([v.reference,v.image,v.mask].map(loadImage));if(version!==requestVersion)return;images=loaded;
+$('notes').textContent=v.notes.join(' · ');$('identity').textContent=`${v.system} / ${v.name} / ${v.state} · ${v.status}\nManifest ${DATA.manifest_hash}\n参考 ${v.reference_hash}\n组装 ${v.assembly_hash}`;await draw();window.viewerReady=true;}
+function pixels(im){const c=document.createElement('canvas');c.width=W;c.height=H;const ctx=c.getContext('2d');ctx.drawImage(im,0,0);return ctx.getImageData(0,0,W,H)}
+function maskPreview(ctx,mask){const shade=ctx.createImageData(W,H);for(let i=0;i<mask.data.length;i+=4){if(mask.data[i]===0){shade.data[i]=100;shade.data[i+1]=105;shade.data[i+2]=115;shade.data[i+3]=210}}
+const c=document.createElement('canvas');c.width=W;c.height=H;c.getContext('2d').putImageData(shade,0,0);ctx.drawImage(c,0,0)}
+async function draw(){if(!images)return;const [ref,art,mask]=images, a=pixels(ref),b=pixels(art),m=pixels(mask);const scoped=$('scope').checked;let denominator=W*H;
+if(scoped){denominator=current.included;for(let i=0;i<a.data.length;i+=4){if(m.data[i]===0){a.data.fill(0,i,i+4);b.data.fill(0,i,i+4)}}}
+const diff=new ImageData(W,H);const count=pixelmatch(a.data,b.data,diff.data,W,H,{threshold:Number($('threshold').value),includeAA:false,diffMask:true});
+$('metric').textContent=`差异 ${count.toLocaleString()} / ${denominator.toLocaleString()} 像素（${(100*count/denominator).toFixed(2)}%）；容差 ${$('threshold').value}`;
+const lc=canvases[0].getContext('2d'),rc=canvases[1].getContext('2d');lc.clearRect(0,0,W,H);rc.clearRect(0,0,W,H);lc.drawImage(ref,0,0);rc.drawImage(art,0,0);
+if($('mode').value==='overlay'){rc.clearRect(0,0,W,H);rc.drawImage(ref,0,0);rc.globalAlpha=Number($('alpha').value);rc.drawImage(art,0,0);rc.globalAlpha=1}
+if($('mode').value==='diff'){rc.clearRect(0,0,W,H);rc.drawImage(ref,0,0);rc.globalAlpha=0.7;rc.fillStyle='#20242a';rc.fillRect(0,0,W,H);rc.globalAlpha=1;const c=document.createElement('canvas');c.width=W;c.height=H;c.getContext('2d').putImageData(diff,0,0);rc.drawImage(c,0,0)}
+if(scoped){maskPreview(lc,m);maskPreview(rc,m)}
+if($('bounds').checked){for(const l of current.layers){let r=l.drawn_rect||l.rect;if(r[2]>0){rc.strokeStyle='#35bfff';rc.lineWidth=1;rc.strokeRect(...r)}const v=l.visible_bounds||l.text_bounds;if(v){rc.strokeStyle='#ffc259';rc.strokeRect(v[0],v[1],v[2]-v[0],v[3]-v[1])}}}
+$('rightTitle').textContent={side:'真实独立素材组装',overlay:'参考与组装透明叠加',diff:'范围内差异热图'}[$('mode').value];zoom();window.lastDiff={count,denominator};}
+function zoom(){const z=Number($('zoom').value);canvases.forEach(c=>{c.style.width=W*z+'px';c.style.height=H*z+'px'});$('zoomValue').textContent=Math.round(z*100)+'%';document.querySelectorAll('.viewport').forEach(v=>v.classList.toggle('checker',$('checker').checked))}
+function download(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+function exportPNG(){const c=document.createElement('canvas');c.width=W*2;c.height=H+170;const ctx=c.getContext('2d');ctx.fillStyle='#171b22';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='#e9edf3';ctx.font='18px monospace';const info=feedback();const lines=[`${info.system} / ${info.page} / ${info.state} | ${info.status}`,`Manifest SHA256 ${info.manifest_sha256}`,`Reference SHA256 ${info.reference_sha256}`,`Assembly SHA256 ${info.assembly_sha256}`,`mode=${info.mode} threshold=${info.threshold} opacity=${info.opacity} scope=${info.scope} | ${$('metric').textContent}`];lines.forEach((s,i)=>ctx.fillText(s,16,26+i*28));ctx.drawImage(canvases[0],0,170);ctx.drawImage(canvases[1],W,170);c.toBlob(blob=>download(blob,`${current.id}--${current.state}--review.png`));}
+options($('system'),DATA.systems.map(s=>[s.id,s.name]));$('system').onchange=pageOptions;$('page').onchange=stateOptions;$('state').onchange=selectView;
+for(const id of ['mode','alpha','threshold','scope','bounds'])$(id).oninput=draw;
+for(const id of ['zoom','checker'])$(id).oninput=zoom;
+$('export').onclick=exportPNG;$('metadata').onclick=()=>download(new Blob([JSON.stringify(feedback(),null,2)],{type:'application/json'}),`${current.id}--feedback.json`);
+for(const [a,b] of [[$('left'),$('right')],[$('right'),$('left')]])a.addEventListener('scroll',()=>{if(sync)return;sync=true;b.scrollLeft=a.scrollLeft;b.scrollTop=a.scrollTop;requestAnimationFrame(()=>sync=false)});
+pageOptions();
+</script></html>

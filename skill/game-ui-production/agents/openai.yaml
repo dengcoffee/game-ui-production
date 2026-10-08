@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI提取"
+  short_description: "按项目规范生产 UI 素材、离线视觉对照、冻结交付并接入 Godot"
+  default_prompt: "使用 $game-ui-production 完成指定系统的 UI：读取项目规范、复用共享资源、制作候选并提供视觉对照，明确确认后再冻结及接入。"
