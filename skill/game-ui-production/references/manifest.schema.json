@@ -58,6 +58,116 @@
           "status": {
             "type": "string",
             "minLength": 1
+          },
+          "ui_type": {
+            "enum": [
+              "base",
+              "frame",
+              "button",
+              "tab",
+              "avatar_frame",
+              "item_slot",
+              "scroll_track",
+              "scroll_thumb",
+              "progress_track",
+              "progress_fill",
+              "separator",
+              "decoration",
+              "ui_icon",
+              "font"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "asset_state": {
+            "type": "string",
+            "pattern": "^(?!.*--)[a-zA-Z0-9_-]+$"
+          },
+          "classification": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "enum": [
+                  "resolved",
+                  "pending"
+                ]
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "basis": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "base",
+                    "frame",
+                    "button",
+                    "tab",
+                    "avatar_frame",
+                    "item_slot",
+                    "scroll_track",
+                    "scroll_thumb",
+                    "progress_track",
+                    "progress_fill",
+                    "decoration",
+                    "ui_icon",
+                    "font"
+                  ]
+                },
+                "minItems": 2
+              },
+              "question": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "status",
+              "role",
+              "basis",
+              "evidence"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "candidates",
+                    "question"
+                  ]
+                }
+              }
+            ]
           }
         },
         "required": [

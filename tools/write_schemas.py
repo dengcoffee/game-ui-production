@@ -29,6 +29,13 @@ XY = tuple_of(NUM, NUM)
 BOUNDS = tuple_of(*[{'type': 'integer', 'minimum': 0}]*4)
 UNIT = {'type': 'number', 'minimum': 0, 'maximum': 1}
 POINTS = array({'type': 'integer', 'minimum': 0}, 2)
+classification = obj({'status': {'enum': ['resolved','pending']}, 'role': STRING,
+                      'basis': STRING, 'evidence': array(STRING,1),
+                      'candidates': array({'enum': ['base','frame','button','tab','avatar_frame','item_slot',
+                          'scroll_track','scroll_thumb','progress_track','progress_fill','decoration','ui_icon','font']},2),
+                      'question': STRING}, ['status','role','basis','evidence'])
+classification['allOf']=[{'if': {'properties': {'status': {'const': 'pending'}}},
+                         'then': {'required': ['candidates','question']}}]
 grid = obj({k: POINTS for k in ['source_x', 'source_y', 'target_x', 'target_y']},
            ['source_x', 'source_y', 'target_x', 'target_y'])
 fields = {'id': ID, 'z': {'type': 'integer'}, 'parent': ID, 'visible': {'type': 'boolean'},
@@ -56,7 +63,12 @@ layer['allOf'] = [
 ]
 patch = obj({k: v for k, v in fields.items() if k != 'id'}, [])
 asset = obj({'path': STRING, 'sha256': HASH, 'kind': {'enum': ['ui', 'content', 'font']},
-             'source': STRING, 'license': STRING, 'status': STRING},
+             'source': STRING, 'license': STRING, 'status': STRING,
+             'ui_type': {'enum': ['base','frame','button','tab','avatar_frame','item_slot',
+                                  'scroll_track','scroll_thumb','progress_track','progress_fill',
+                                  'separator','decoration','ui_icon','font']},
+             'tags': array(STRING), 'display_name': STRING, 'asset_state': ID,
+             'classification': classification},
             ['path', 'sha256', 'kind', 'source', 'license', 'status'])
 page = obj({'id': ID, 'name': STRING, 'system': ID, 'master': ID, 'status': STRING,
             'reference': obj({'path': STRING, 'sha256': HASH}, ['path', 'sha256']),
@@ -90,6 +102,6 @@ project = obj({'schema_version': {'enum': [1, 2]}, 'source_root': STRING, 'outpu
                'engine': STRING, 'documents': array(STRING), 'status_source': STRING,
                'rules': {'type': 'object'}, 'art_bible': STRING},
               ['schema_version', 'source_root', 'output_root', 'engine', 'documents', 'status_source', 'rules', 'art_bible'])
-for name, schema in [('layer', layer), ('manifest', manifest), ('project', project)]:
+for name, schema in [('layer', layer), ('manifest', manifest), ('project', project), ('classification',classification)]:
     schema['$schema'] = 'https://json-schema.org/draft/2020-12/schema'
     (OUT / (name + '.schema.json')).write_text(json.dumps(schema, indent=2), 'utf-8')

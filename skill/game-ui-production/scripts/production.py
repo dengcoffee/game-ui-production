@@ -108,6 +108,13 @@ def plan(config_path, manifest_path, task, out):
     if len({a['id'] for a in requests}) != len(requests):
         raise ValueError('Duplicate requested assets')
     for asset in requests:
+        if asset['kind']=='ui':
+            from asset_package import TYPES, asset_type, check_classification
+            check_classification(asset.get('classification'),required=asset.get('ui_type') is not None)
+            if asset.get('ui_type') is not None and (asset_type(asset['ui_type']) not in TYPES or asset['ui_type']=='font'):
+                raise ValueError('Unknown UI type')
+            if config['rules'].get('asset_library') and asset.get('ui_type') not in TYPES:
+                raise ValueError('Library production requires explicit ui_type')
         if asset['kind'] not in whitelist:
             raise ValueError(f'Asset category outside project production scope: {asset["kind"]}')
         if not all(k in asset for k in ['purpose','display_size','states','alpha','allowed_changes']):
@@ -146,7 +153,7 @@ def ledger_path(config, root):
     return managed(root, config['rules'].get('candidate_dir', '.ui-production/candidates'))/'index.json'
 
 
-def import_candidate(config_path, request_path, file, identity, state, origin, license, method='external', attempt=None):
+def import_candidate(config_path, request_path, file, identity, state, origin, license, method='external', attempt=None, layer_report=None):
     config, root = context(config_path)
     request = ui.read(request_path)
     if request['config_sha256'] != ui.digest(config_path):
@@ -165,6 +172,16 @@ def import_candidate(config_path, request_path, file, identity, state, origin, l
         if source.format != 'PNG':
             raise ValueError('Import must be a real PNG')
     info = ui.image_info(file, spec.get('alpha_threshold', 0))
+    from asset_package import check_classification
+    check_classification(spec.get('classification'),required=spec.get('ui_type') is not None)
+    if layer_report:
+        from asset_package import asset_type, check_classification
+        report=ui.read(layer_report)
+        layer=next((r for r in report['regions'] if r['id']==identity),None)
+        if layer is None or layer['sha256']!=ui.digest(file):raise ValueError('Layer report does not match candidate image')
+        check_classification(layer.get('classification'),required=True)
+        if asset_type(layer.get('ui_type'))!=asset_type(spec.get('ui_type')) or layer['classification']!=spec.get('classification'):
+            raise ValueError('Layer classification differs from production plan')
     if spec['alpha'] and (not info['has_alpha_channel'] or info['alpha_extrema'][0] == 255):
         raise ValueError('Required genuine transparency is absent')
     if info['visible_bounds'] is None:
@@ -189,6 +206,7 @@ def import_candidate(config_path, request_path, file, identity, state, origin, l
               'request_sha256': ui.digest(request_path), 'spec': spec, 'info': info,
               'created_at': datetime.now(timezone.utc).isoformat()}
     ledger['candidates'].append(record)
+    if layer_report:record['layer_report_sha256']=ui.digest(layer_report)
     if ticket:
         ticket.update(outcome='imported',output_sha256=hash)
     else:
@@ -204,6 +222,8 @@ def prepare_provider(config_path,request_path,identity,state,operation,reference
         raise ValueError('Production request is stale')
     spec=next((v for v in request['assets'] if v['id']==identity),None)
     if not spec or state not in spec['states']:raise ValueError('Asset/state outside production plan')
+    from asset_package import check_classification
+    check_classification(spec.get('classification'),required=spec.get('ui_type') is not None)
     if operation=='edit_with_reference' and not references:raise ValueError('Reference editing needs explicit local targets')
     paths=[str(ui.inside(root,p)) for p in references]
     args={'prompt':request['prompts'][identity]+'\nTarget state: '+state+
@@ -244,6 +264,9 @@ def attach_candidate(config_path, manifest_path, candidate_path, asset_id, out):
     new = copy.deepcopy(manifest)
     new['assets'][asset_id] = {k:record[k] for k in ['path','sha256','source','license','status']}
     new['assets'][asset_id]['kind'] = record['spec']['kind']
+    for field in ['ui_type','tags','display_name','classification']:
+        if field in record['spec']:new['assets'][asset_id][field]=record['spec'][field]
+    new['assets'][asset_id]['asset_state']=record['state']
     write(out, new)
     return {'manifest': str(out), 'affected_pages': resources.get(asset_id, {}).get('pages', []), 'status': 'candidate'}
 
@@ -564,6 +587,7 @@ def main():
             for key in ['request','file','id','state','source','license']:p.add_argument('--'+key,required=True)
             p.add_argument('--method',default='external',choices=['external','builtin_imagegen','extraction','repair'])
             p.add_argument('--attempt')
+            p.add_argument('--layer-report')
         if command=='prepare-provider':
             for key in ['request','id','state']:p.add_argument('--'+key,required=True)
             p.add_argument('--operation',choices=['generate','edit_with_reference','transparent_asset'],required=True)
@@ -587,7 +611,7 @@ def main():
         elif c == 'capabilities':r=capabilities()
         elif c == 'plan':r=plan(a.config,a.manifest,ui.read(a.task),a.out)
         elif c == 'quality':r=quality(a.config,a.manifest)
-        elif c == 'import':r=import_candidate(a.config,a.request,a.file,a.id,a.state,a.source,a.license,a.method,a.attempt)
+        elif c == 'import':r=import_candidate(a.config,a.request,a.file,a.id,a.state,a.source,a.license,a.method,a.attempt,a.layer_report)
         elif c == 'prepare-provider':r=prepare_provider(a.config,a.request,a.id,a.state,a.operation,a.references,a.out)
         elif c == 'provider-failure':r=provider_failure(a.config,a.ticket,a.reason)
         elif c == 'attach':r=attach_candidate(a.config,a.manifest,a.candidate,a.id,a.out)
